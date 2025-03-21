@@ -1,86 +1,126 @@
-from zipfile import ZipFile
-import os
 
-# Create directory structure for the game files
-base_path = "/mnt/data/bloxorz_game"
-os.makedirs(base_path, exist_ok=True)
+// Bloxorz-style 3D game with random, always-solvable 20x20 map
 
-# index.html content
-index_html = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Bloxorz 3D</title>
-  <style>
-    body { background: #111; color: #fff; text-align: center; font-family: sans-serif; margin: 0; padding: 20px; }
-    canvas { background: #000; max-width: 100%; height: auto; }
-    .controls button {
-      width: 60px; height: 60px; font-size: 24px; margin: 5px;
+let scene, camera, renderer, cube, controls;
+const tileSize = 1;
+const gridSize = 20;
+let map = [];
+let startX = 0, startZ = 0;
+let endX = 0, endZ = 0;
+let cubeX = 0, cubeZ = 0;
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('gameCanvas').replaceWith(renderer.domElement);
+
+    // Generate map and add tiles
+    generateSolvableMap();
+    renderMap();
+
+    // Add cube
+    const geometry = new THREE.BoxGeometry(tileSize, tileSize, tileSize);
+    const material = new THREE.MeshBasicMaterial({ color: 0xff6600 });
+    cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+
+    cube.position.set(startX, 0.5, startZ);
+    cubeX = startX;
+    cubeZ = startZ;
+
+    camera.position.set(gridSize / 2, 20, gridSize / 2);
+    camera.lookAt(gridSize / 2, 0, gridSize / 2);
+
+    animate();
+}
+
+function generateSolvableMap() {
+    map = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+    const path = [];
+
+    let x = Math.floor(Math.random() * gridSize);
+    let z = Math.floor(Math.random() * gridSize);
+
+    startX = x;
+    startZ = z;
+
+    path.push([x, z]);
+    map[z][x] = 1;
+
+    const steps = 60 + Math.floor(Math.random() * 40);
+    const directions = [
+        [1, 0], [-1, 0],
+        [0, 1], [0, -1]
+    ];
+
+    for (let i = 0; i < steps; i++) {
+        const [dx, dz] = directions[Math.floor(Math.random() * directions.length)];
+        const nx = x + dx;
+        const nz = z + dz;
+
+        if (nx >= 0 && nx < gridSize && nz >= 0 && nz < gridSize && map[nz][nx] === 0) {
+            x = nx;
+            z = nz;
+            path.push([x, z]);
+            map[z][x] = 1;
+        }
     }
-  </style>
-</head>
-<body>
-  <h1>Bloxorz 3D</h1>
-  <canvas id="gameCanvas" width="600" height="600"></canvas>
-  <div class="controls">
-    <div><button onclick="move('up')">⬆️</button></div>
-    <div>
-      <button onclick="move('left')">⬅️</button>
-      <button onclick="move('down')">⬇️</button>
-      <button onclick="move('right')">➡️</button>
-    </div>
-  </div>
-  <p id="statusText"></p>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
-  <script src="game.js"></script>
-</body>
-</html>
-"""
 
-# Save index.html
-with open(os.path.join(base_path, "index.html"), "w") as f:
-    f.write(index_html)
+    // End position is the last in the path
+    endX = x;
+    endZ = z;
+    map[endZ][endX] = 2;
+}
 
-# Placeholder game.js (actual logic to be added)
-game_js = """
-// Full 3D game logic with random solvable 20x20 map will be here.
-alert("Game script loaded. Logic will go here.");
-"""
+function renderMap() {
+    for (let z = 0; z < gridSize; z++) {
+        for (let x = 0; x < gridSize; x++) {
+            if (map[z][x] > 0) {
+                const tileGeo = new THREE.BoxGeometry(tileSize, 0.1, tileSize);
+                const tileMat = new THREE.MeshBasicMaterial({ color: map[z][x] === 2 ? 0x00ff00 : 0x4444ff });
+                const tile = new THREE.Mesh(tileGeo, tileMat);
+                tile.position.set(x, 0, z);
+                scene.add(tile);
+            }
+        }
+    }
+}
 
-# Save game.js
-with open(os.path.join(base_path, "game.js"), "w") as f:
-    f.write(game_js)
+function move(direction) {
+    let dx = 0, dz = 0;
+    if (direction === 'up') dz = -1;
+    if (direction === 'down') dz = 1;
+    if (direction === 'left') dx = -1;
+    if (direction === 'right') dx = 1;
 
-# README.txt with Blogger instructions
-readme_txt = """
-Bloxorz 3D Game - Blogger Integration Guide
-===========================================
+    const newX = cubeX + dx;
+    const newZ = cubeZ + dz;
 
-FILES:
-- index.html : The main HTML layout
-- game.js    : JavaScript logic for rendering and game mechanics
+    if (
+        newX >= 0 && newX < gridSize &&
+        newZ >= 0 && newZ < gridSize &&
+        map[newZ][newX] > 0
+    ) {
+        cubeX = newX;
+        cubeZ = newZ;
+        cube.position.set(cubeX, 0.5, cubeZ);
 
-HOW TO USE ON BLOGGER:
-1. Upload both files to a file host (e.g. GitHub Pages, Netlify, or Google Drive w/ direct link).
-2. Use an <iframe> in your Blogger post like this:
+        if (cubeX === endX && cubeZ === endZ) {
+            document.getElementById('statusText').innerText = "🎉 You reached the goal! Generating new level...";
+            setTimeout(() => {
+                while(scene.children.length > 0){ scene.remove(scene.children[0]); }
+                init();
+                document.getElementById('statusText').innerText = "";
+            }, 2000);
+        }
+    }
+}
 
-<iframe src="YOUR_UPLOADED_INDEX.HTML_URL" width="100%" height="650" style="border:none;"></iframe>
+function animate() {
+    requestAnimationFrame(animate);
+    renderer.render(scene, camera);
+}
 
-This will embed the game inside your Blogger page and keep the code separate and clean.
-"""
-
-# Save README.txt
-with open(os.path.join(base_path, "README.txt"), "w") as f:
-    f.write(readme_txt)
-
-# Zip all files
-zip_path = "/mnt/data/Bloxorz_3D_Game.zip"
-with ZipFile(zip_path, 'w') as zipf:
-    for filename in os.listdir(base_path):
-        zipf.write(os.path.join(base_path, filename), filename)
-
-zip_path
-
-
+window.onload = init;
